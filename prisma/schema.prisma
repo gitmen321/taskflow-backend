@@ -4,13 +4,12 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -20,7 +19,104 @@ model User {
   password  String
   createdAt DateTime @default(now())
 
-  memberships TeamMember[]
-  tasksAssigned Task[] @relation("AssignedTasks")
-  tasksCreated  Task[] @relation("CreatedTasks")
+  memberships   TeamMember[]
+  tasksAssigned Task[]       @relation("AssignedTasks")
+  tasksCreated  Task[]       @relation("CreatedTasks")
+
+  logs ActivityLog[]
+}
+
+model Team {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  members TeamMember[]
+  tasks   Task[]
+  logs    ActivityLog[]
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+model TeamMember {
+  id   String @id @default(uuid())
+  role Role
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId String
+
+  @@unique([userId, teamId])
+  @@index([userId])
+  @@index([teamId])
+}
+
+model Task {
+  id          String     @id @default(uuid())
+  title       String
+  description String?
+  status      TaskStatus @default(PENDING)
+  dueDate     DateTime?
+  createdAt   DateTime   @default(now())
+
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId String
+
+  assignedTo   User?   @relation("AssignedTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedToId String?
+
+  createdBy   User   @relation("CreatedTasks", fields: [createdById], references: [id], onDelete: Cascade)
+  createdById String
+
+  dependsOn TaskDependency[] @relation("TaskDependencies")
+  blockedBy TaskDependency[] @relation("DependsOn")
+
+  logs ActivityLog[]
+
+  @@index([teamId])
+  @@index([assignedToId])
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+}
+
+model TaskDependency {
+  id String @id @default(uuid())
+
+  task   Task   @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  taskId String
+
+  dependsOn   Task   @relation("DependsOn", fields: [dependsOnId], references: [id], onDelete: Cascade)
+  dependsOnId String
+
+  @@unique([taskId, dependsOnId])
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  team   Team?   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId String?
+
+  task   Task?   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId String?
+
+  @@index([userId])
+  @@index([teamId])
+  @@index([taskId])
 }
