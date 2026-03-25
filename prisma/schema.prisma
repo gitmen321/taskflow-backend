@@ -17,19 +17,38 @@ model User {
   email     String   @unique
   password  String
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())    @updatedAt
 
   memberships   TeamMember[]
   tasksAssigned Task[]       @relation("AssignedTasks")
   tasksCreated  Task[]       @relation("CreatedTasks")
 
   logs ActivityLog[]
+
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id          String      @id @default(uuid())
+  token       String
+  revoked     Boolean     @default(false)
+  expiresAt   DateTime    
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+
+  @@index([userId])
+  
 }
 
 model Team {
   id        String   @id @default(uuid())
   name      String
   createdAt DateTime @default(now())
-
+  updatedAt DateTime @default(now())    @updatedAt
+  
   members TeamMember[]
   tasks   Task[]
   logs    ActivityLog[]
@@ -62,6 +81,10 @@ model Task {
   status      TaskStatus @default(PENDING)
   dueDate     DateTime?
   createdAt   DateTime   @default(now())
+  updatedAt DateTime @default(now())    @updatedAt
+  
+
+
 
   team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
   teamId String
@@ -85,6 +108,7 @@ enum TaskStatus {
   PENDING
   IN_PROGRESS
   COMPLETED
+  BLOCKED
   OVERDUE
 }
 
