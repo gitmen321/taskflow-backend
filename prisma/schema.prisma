@@ -12,20 +12,26 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  name      String
-  email     String   @unique
-  password  String
+  id          String   @id @default(uuid())
+  name        String
+  email       String   @unique
+  password    String?
+  provider    AuthProvider  @default(LOCAL)
+  providerId  String?     
+
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now())    @updatedAt
 
   memberships   TeamMember[]
   tasksAssigned Task[]       @relation("AssignedTasks")
   tasksCreated  Task[]       @relation("CreatedTasks")
-
   logs ActivityLog[]
-
   refreshTokens RefreshToken[]
+}
+
+enum AuthProvider {
+  GOOGLE
+  LOCAL
 }
 
 model RefreshToken {
