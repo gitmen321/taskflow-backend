@@ -17,7 +17,7 @@ model User {
   email       String   @unique
   password    String?
   provider    AuthProvider  @default(LOCAL)
-  providerId  String?     
+  providerId  String?    @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now())    @updatedAt
@@ -27,11 +27,15 @@ model User {
   tasksCreated  Task[]       @relation("CreatedTasks")
   logs ActivityLog[]
   refreshTokens RefreshToken[]
+  createdTeams Team[]       @relation("createdTeams")
+
+
+  @@index([provider, providerId])
 }
 
 enum AuthProvider {
-  GOOGLE
   LOCAL
+  GOOGLE
 }
 
 model RefreshToken {
@@ -46,6 +50,7 @@ model RefreshToken {
   userId      String
 
   @@index([userId])
+  @@index([expiresAt])
   
 }
 
@@ -54,10 +59,15 @@ model Team {
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now())    @updatedAt
+
+  createdBy User  @relation("createdTeams", fields: [createdById], references: [id])
+  createdById String
   
   members TeamMember[]
   tasks   Task[]
   logs    ActivityLog[]
+
+  @@index([createdById])
 }
 
 enum Role {
@@ -89,9 +99,6 @@ model Task {
   createdAt   DateTime   @default(now())
   updatedAt DateTime @default(now())    @updatedAt
   
-
-
-
   team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
   teamId String
 
@@ -106,8 +113,12 @@ model Task {
 
   logs ActivityLog[]
 
+  position  Int?
+  priority  Int?
+
   @@index([teamId])
   @@index([assignedToId])
+  @@index([createdById])
 }
 
 enum TaskStatus {
@@ -128,6 +139,7 @@ model TaskDependency {
   dependsOnId String
 
   @@unique([taskId, dependsOnId])
+  @@index([dependsOnId])
 }
 
 model ActivityLog {
