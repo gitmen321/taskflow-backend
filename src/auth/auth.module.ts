@@ -4,14 +4,13 @@ import { AuthController } from './auth.controller';
 
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { AccessTokenStrategy } from './guards/access-token.guards';
-import { RefreshTokenStrategy } from './guards/refresh-token.guard';
+import { AccessTokenStrategy } from './strategies/access-token.strategy';
+import { RefreshTokenStrategy } from './strategies/refresh-token.strategy';
 
 
 @Module({
   imports: [
     ConfigModule,
-
     JwtModule.registerAsync({
       inject: [ConfigService],
 
@@ -19,7 +18,7 @@ import { RefreshTokenStrategy } from './guards/refresh-token.guard';
         secret: config.getOrThrow<string>('JWT_ACCESS_SECRET') ,
 
         signOptions: {
-          expiresIn: config.getOrThrow<string>('JWT_EXPIRES_IN') as any ,
+          expiresIn: config.getOrThrow<string>('JWT_ACCESS_EXPIRES_IN') as Str ,
         },
       }),
     }),
