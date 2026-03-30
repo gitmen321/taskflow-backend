@@ -87,6 +87,9 @@ export class AuthService {
         const existingUser = await this.prisma.user.findUnique({
             where: {
                 email: userData.email,
+            },
+            select: {
+                id: true,
             }
         });
 
@@ -104,11 +107,14 @@ export class AuthService {
 
         return await this.prisma.$transaction(async (tx) => {
 
-            const newUser = await this.prisma.user.create({
+            const newUser = await tx.user.create({
                 data: {
                     ...userData,
                     password: hashedPassword,
                     provider: AuthProvider.LOCAL,
+                },
+                select: {
+                    id: true,
                 }
             });
 
