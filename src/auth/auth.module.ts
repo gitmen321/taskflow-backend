@@ -18,7 +18,7 @@ import { RefreshTokenStrategy } from './strategies/refresh-token.strategy';
         secret: config.getOrThrow<string>('JWT_ACCESS_SECRET') ,
 
         signOptions: {
-          expiresIn: config.getOrThrow<string>('JWT_ACCESS_EXPIRES_IN') as Str ,
+          expiresIn: config.getOrThrow<string>('JWT_ACCESS_EXPIRES_IN') as any ,
         },
       }),
     }),
