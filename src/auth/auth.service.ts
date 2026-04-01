@@ -81,10 +81,11 @@ export class AuthService {
         });
     }
 
-    private async revokeSession(sessionId: string) {
+    private async revokeSession(sessionId: string, userId: string) {
         return this.prisma.refreshToken.update({
             where: {
-                id: sessionId
+                id: sessionId,
+                userId: userId
             },
             data: {
                 revoked: true,
@@ -102,6 +103,10 @@ export class AuthService {
             sameSite: 'strict',
             maxAge: ms(expiresIn),
         });
+    }
+
+    clearRefreshCookie(res: Response) {
+        res.clearCookie("refreshToken");
     }
 
     async registerUser(dto: RegisterUserDto) {
@@ -204,13 +209,12 @@ export class AuthService {
         });
     }
 
-    async refreshTokens(payload: {
-        sub: string;
+    async refreshTokens(
+        userId: string,
         sessionId: string,
         refreshToken: string
-    },
+    
     ) {
-        const { sub: userId, sessionId, refreshToken } = payload;
 
         const session = await this.prisma.refreshToken.findUnique({
             where: { id: sessionId },
@@ -237,7 +241,7 @@ export class AuthService {
         }
 
         if (session.expiresAt < new Date()) {
-            await this.revokeSession(sessionId);
+            await this.revokeSession(sessionId, userId);
             throw new UnauthorizedException('REFRESH_TOKEN_EXPIRED');
         }
 
@@ -256,6 +260,14 @@ export class AuthService {
             accessToken,
             newRefreshToken
         }
+    }
+
+    async logOut(sessionId: string, userId:string) {
+        return await this.revokeSession(sessionId, userId);
+    }
+
+    async logoutAll(userId: string) {
+        return await this.revokeAllSession(userId);
     }
 }
 

@@ -1,10 +1,12 @@
-import { Body, Controller, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterUserDto } from './dto/register.dto';
 import type { Response } from 'express';
 import { LoginUserDto } from './dto/login.dto';
 import { RefreshTokenGuard } from './guards/refresh-token.guard';
 import { JwtPayload } from './interfaces/jwt_payload.interface';
+import { AccessTokenGuard } from './guards/access-token.guards';
+import { GetCurrentUser } from 'src/common/decorators/get-current-user.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -41,16 +43,45 @@ export class AuthController {
     @Post("refresh")
     @UseGuards(RefreshTokenGuard)
     async refreshTokens(
-        @Req() req: Request & { user: JwtPayload },
+        @GetCurrentUser() user: { sub: string; sessionId: string; refreshToken: string },
         @Res({ passthrough: true }) res: Response,
     ) {
-        const payload = req.user;
 
-        const { accessToken, newRefreshToken } = await this.authService.refreshTokens(payload);
+        const { accessToken, newRefreshToken } = await this.authService.refreshTokens(user.sub, user.sessionId, user.refreshToken);
         await this.authService.setRefreshCookie(res, newRefreshToken);
 
         return {
             accessToken
         }
+    }
+
+    @Post("logout")
+    @UseGuards(AccessTokenGuard)
+    async logOut(
+        @GetCurrentUser() user: { sub: string; sessionId: string },
+        @Res({ passthrough: true }) res: Response,
+    ) {
+        await this.authService.logOut(user.sessionId, user.sub);
+
+        res.clearCookie("refreshToken");
+
+        return ({
+            message: "Loggedout Successfully"
+        });
+    }
+
+    @Post("logout-all")
+    @UseGuards(AccessTokenGuard)
+    async logoutAll(
+        @GetCurrentUser() user: { sub: string },
+        @Res({ passthrough: true }) res: Response,
+    ) {
+
+        await this.authService.logoutAll(user.sub);
+        this.authService.clearRefreshCookie(res);
+
+        return ({
+            message: "Logged out from all devices"
+        });
     }
 }
