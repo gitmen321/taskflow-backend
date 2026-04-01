@@ -45,15 +45,15 @@ export class AuthService {
     }
 
     private async storeRefreshTokenHash(
-        tx: Prisma.TransactionClient,
         sessionId: string,
         refreshToken: string,
+        tx?: Prisma.TransactionClient,
     ) {
-        const hashedToken = await argon2.hash(refreshToken);
+        const client = tx ?? this.prisma;
 
-        return tx.refreshToken.update({
+        return client.refreshToken.update({
             where: { id: sessionId },
-            data: { token: hashedToken },
+            data: { token: refreshToken },
         });
     }
 
@@ -67,6 +67,29 @@ export class AuthService {
                 expiresAt: new Date(Date.now() + ms(expiresIn)),
             }
         })
+    }
+
+    private async revokeAllSession(userId: string) {
+        return this.prisma.refreshToken.updateMany({
+            where: {
+                userId,
+                revoked: false,
+            },
+            data: {
+                revoked: true,
+            }
+        });
+    }
+
+    private async revokeSession(sessionId: string) {
+        return this.prisma.refreshToken.update({
+            where: {
+                id: sessionId
+            },
+            data: {
+                revoked: true,
+            }
+        });
     }
 
     async setRefreshCookie(res: Response, token: string) {
@@ -124,8 +147,9 @@ export class AuthService {
                 newUser.id,
                 refreshSession.id
             );
+            const hashedToken = await argon2.hash(refreshToken);
 
-            await this.storeRefreshTokenHash(tx, refreshSession.id, refreshToken);
+            await this.storeRefreshTokenHash(refreshSession.id, hashedToken, tx);
 
             const accessToken = await this.generateAccessToken(
                 newUser.id,
@@ -170,13 +194,68 @@ export class AuthService {
             const refreshSession = await this.createSession(tx, userData.id);
             const refreshToken = await this.generateRefreshToken(userData.id, refreshSession.id);
             const accessToken = await this.generateAccessToken(userData.id, refreshSession.id);
-            await this.storeRefreshTokenHash(tx, refreshSession.id, refreshToken);
+
+            const hashedToken = await argon2.hash(refreshToken);
+            await this.storeRefreshTokenHash(refreshSession.id, hashedToken, tx);
 
             if (process.env.NODE_ENV !== 'production') console.log(`refreshToken: ${refreshToken}`);
 
             return { accessToken, refreshToken };
         });
+    }
 
+    async refreshTokens(payload: {
+        sub: string;
+        sessionId: string,
+        refreshToken: string
+    },
+    ) {
+        const { sub: userId, sessionId, refreshToken } = payload;
+
+        const session = await this.prisma.refreshToken.findUnique({
+            where: { id: sessionId },
+            select: {
+                token: true,
+                id: true,
+                revoked: true,
+                expiresAt: true,
+            }
+        });
+
+        if (!session || session.revoked) {
+            await this.revokeAllSession(userId);
+            console.log("session or token revoked");
+            throw new UnauthorizedException('REFRESH_TOKEN_REUSE_DETECTED',);
+        }
+
+        const isTokenValid = await argon2.verify(session.token, refreshToken);
+
+        if (!isTokenValid) {
+            await this.revokeAllSession(userId);
+            console.log("invalid token");
+            throw new UnauthorizedException('REFRESH_TOKEN_REUSE_DETECTED');
+        }
+
+        if (session.expiresAt < new Date()) {
+            await this.revokeSession(sessionId);
+            throw new UnauthorizedException('REFRESH_TOKEN_EXPIRED');
+        }
+
+
+        const newRefreshToken = await this.generateRefreshToken(userId, sessionId);
+
+        const hashedToken = await argon2.hash(newRefreshToken);
+
+        await this.storeRefreshTokenHash(sessionId, hashedToken);
+
+        const accessToken = await this.generateAccessToken(userId, sessionId);
+
+        if (process.env.NODE_ENV !== 'production') console.log(`new refreshToken: ${newRefreshToken}`);
+
+        return {
+            accessToken,
+            newRefreshToken
+        }
     }
 }
 
