@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterUserDto } from './dto/register.dto';
 import type { Response } from 'express';
@@ -28,6 +28,7 @@ export class AuthController {
     }
 
     @Post("login")
+    @HttpCode(HttpStatus.OK)
     async loginUser(
         @Body() dto: LoginUserDto,
         @Res({ passthrough: true }) res: Response,
@@ -41,6 +42,7 @@ export class AuthController {
     }
 
     @Post("refresh")
+    @HttpCode(HttpStatus.OK)
     @UseGuards(RefreshTokenGuard)
     async refreshTokens(
         @GetCurrentUser() user: { sub: string; sessionId: string; refreshToken: string },
@@ -56,13 +58,13 @@ export class AuthController {
     }
 
     @Post("logout")
+    @HttpCode(HttpStatus.NO_CONTENT)
     @UseGuards(AccessTokenGuard)
     async logOut(
         @GetCurrentUser() user: { sub: string; sessionId: string },
         @Res({ passthrough: true }) res: Response,
     ) {
         await this.authService.logOut(user.sessionId, user.sub);
-
         res.clearCookie("refreshToken");
 
         return ({
@@ -71,6 +73,7 @@ export class AuthController {
     }
 
     @Post("logout-all")
+    @HttpCode(HttpStatus.NO_CONTENT)
     @UseGuards(AccessTokenGuard)
     async logoutAll(
         @GetCurrentUser() user: { sub: string },
