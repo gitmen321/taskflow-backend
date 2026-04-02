@@ -57,10 +57,12 @@ export class AuthService {
         });
     }
 
-    private async createSession(tx: Prisma.TransactionClient, userId: string) {
+    private async createSession(userId: string, tx?: Prisma.TransactionClient,) {
         const expiresIn = this.config.getOrThrow<string>('JWT_REFRESH_EXPIRES_IN') as StringValue;
 
-        return tx.refreshToken.create({
+        const client = tx ?? this.prisma;
+
+        return client.refreshToken.create({
             data: {
                 userId,
                 token: '',
@@ -146,7 +148,7 @@ export class AuthService {
                 }
             });
 
-            const refreshSession = await this.createSession(tx, newUser.id,);
+            const refreshSession = await this.createSession(newUser.id, tx);
 
             const refreshToken = await this.generateRefreshToken(
                 newUser.id,
@@ -196,7 +198,7 @@ export class AuthService {
 
         return await this.prisma.$transaction(async (tx) => {
 
-            const refreshSession = await this.createSession(tx, userData.id);
+            const refreshSession = await this.createSession(userData.id, tx);
             const refreshToken = await this.generateRefreshToken(userData.id, refreshSession.id);
             const accessToken = await this.generateAccessToken(userData.id, refreshSession.id);
 
@@ -213,7 +215,7 @@ export class AuthService {
         userId: string,
         sessionId: string,
         refreshToken: string
-    
+
     ) {
 
         const session = await this.prisma.refreshToken.findUnique({
@@ -262,12 +264,52 @@ export class AuthService {
         }
     }
 
-    async logOut(sessionId: string, userId:string) {
+    async logOut(sessionId: string, userId: string) {
         return await this.revokeSession(sessionId, userId);
     }
 
     async logoutAll(userId: string) {
         return await this.revokeAllSession(userId);
+    }
+
+    async googleLogin(profile: {
+        email: string,
+        providerId: string,
+        provider: "GOOGLE",
+        name: string
+    }) {
+        let user = await this.prisma.user.findUnique({
+            where: { email: profile.email },
+            select: {
+                id: true,
+                email: true,
+                provider: true,
+                providerId: true,
+            }
+        });
+
+        if (!user) {
+            user = await this.prisma.user.create({
+                data: {
+                    name: profile.name,
+                    email: profile.email,
+                    provider: profile.provider,
+                    providerId: profile.providerId,
+                },
+            });
+        }
+        
+        const session = await this.createSession(user.id);
+
+        const refreshToken = await this.generateRefreshToken(user.id, session.id);
+
+        await this.storeRefreshTokenHash(session.id, refreshToken);
+
+        const accessToken = await this.generateAccessToken(user.id, session.id);
+
+        return {
+            accessToken, refreshToken
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, Get, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterUserDto } from './dto/register.dto';
 import type { Response } from 'express';
@@ -7,11 +7,39 @@ import { RefreshTokenGuard } from './guards/refresh-token.guard';
 import { JwtPayload } from './interfaces/jwt_payload.interface';
 import { AccessTokenGuard } from './guards/access-token.guards';
 import { GetCurrentUser } from 'src/common/decorators/get-current-user.decorator';
+import { GoogleAuthGuard } from './guards/google.guard';
 
 @Controller('auth')
 export class AuthController {
     constructor(
         private authService: AuthService) { }
+
+    @Get("google")
+    @UseGuards(GoogleAuthGuard)
+    googleLogin() {
+
+    }
+
+    @Get("google/callback")
+    @UseGuards(GoogleAuthGuard)
+    async googleCallback(
+        @Req() req,
+        @Res({ passthrough: true }) res: Response
+    ) {
+        const tokens = await this.authService.googleLogin(req.user);
+
+        this.authService.setRefreshCookie(
+            res,
+            tokens.refreshToken
+        );
+        if (process.env.NODE_ENV === 'production') {
+            return res.redirect(`http://localhost:3000/oauth-success?accessToken=${tokens.accessToken}`);
+        }
+        return {
+            accessToken: tokens.accessToken
+        }
+
+    }
 
     @Post("register")
     async registerUser(
@@ -87,5 +115,6 @@ export class AuthController {
             message: "Logged out from all devices"
         });
     }
+
 }
 
