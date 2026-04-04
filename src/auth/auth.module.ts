@@ -7,6 +7,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AccessTokenStrategy } from './strategies/access-token.strategy';
 import { RefreshTokenStrategy } from './strategies/refresh-token.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
+import { TokenService } from './services/token.service';
+import { SessionService } from './services/session.service';
+import { CookieService } from './services/cookie.service';
 
 
 @Module({
@@ -28,9 +31,12 @@ import { GoogleStrategy } from './strategies/google.strategy';
 
   providers: [
     AuthService,
-    AccessTokenStrategy,
+    AccessTokenStrategy, 
     RefreshTokenStrategy,
     GoogleStrategy,
+    TokenService,
+    SessionService,
+    CookieService,
   ],
 })
 export class AuthModule { }

@@ -8,11 +8,14 @@ import { JwtPayload } from './interfaces/jwt_payload.interface';
 import { AccessTokenGuard } from './guards/access-token.guards';
 import { GetCurrentUser } from 'src/common/decorators/get-current-user.decorator';
 import { GoogleAuthGuard } from './guards/google.guard';
+import { CookieService } from './services/cookie.service';
 
 @Controller('auth')
 export class AuthController {
     constructor(
-        private authService: AuthService) { }
+        private authService: AuthService,
+        private readonly cookieSerive: CookieService
+    ) { }
 
     @Get("google")
     @UseGuards(GoogleAuthGuard)
@@ -28,7 +31,7 @@ export class AuthController {
     ) {
         const tokens = await this.authService.googleLogin(req.user);
 
-        this.authService.setRefreshCookie(
+        this.cookieSerive.setRefreshCookie(
             res,
             tokens.refreshToken
         );
@@ -47,7 +50,7 @@ export class AuthController {
         @Res({ passthrough: true }) res: Response,
     ) {
         const { accessToken, refreshToken } = await this.authService.registerUser(dto);
-        this.authService.setRefreshCookie(res, refreshToken);
+        this.cookieSerive.setRefreshCookie(res, refreshToken);
 
         return {
             message: "User registered successfully",
@@ -62,7 +65,7 @@ export class AuthController {
         @Res({ passthrough: true }) res: Response,
     ) {
         const { accessToken, refreshToken } = await this.authService.loginUser(dto);
-        this.authService.setRefreshCookie(res, refreshToken);
+        this.cookieSerive.setRefreshCookie(res, refreshToken);
         return {
             message: "User logged in successfully",
             accessToken: accessToken
@@ -78,7 +81,7 @@ export class AuthController {
     ) {
 
         const { accessToken, newRefreshToken } = await this.authService.refreshTokens(user.sub, user.sessionId, user.refreshToken);
-        await this.authService.setRefreshCookie(res, newRefreshToken);
+        await this.cookieSerive.setRefreshCookie(res, newRefreshToken);
 
         return {
             accessToken
@@ -109,7 +112,7 @@ export class AuthController {
     ) {
 
         await this.authService.logoutAll(user.sub);
-        this.authService.clearRefreshCookie(res);
+        this.cookieSerive.clearRefreshCookie(res);
 
         return ({
             message: "Logged out from all devices"

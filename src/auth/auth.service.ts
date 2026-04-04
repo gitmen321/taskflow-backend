@@ -5,111 +5,21 @@ import * as argon2 from "argon2";
 import { AuthProvider, Prisma } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import ms, { StringValue } from 'ms';
-import type { Response } from 'express';
 import { LoginUserDto } from './dto/login.dto';
 import { DUMMY_HASH } from 'src/common/constants/constants';
+import { TokenService } from './services/token.service';
+import { SessionService } from './services/session.service';
 
 @Injectable()
 export class AuthService {
     constructor(
+        private tokenService: TokenService,
         private readonly prisma: PrismaService,
         private readonly jwtService: JwtService,
-        private readonly config: ConfigService
+        private readonly config: ConfigService,
+        private readonly sessionService: SessionService
     ) { }
 
-    private async generateAccessToken(
-        userId: string,
-        sessionId: string
-    ) {
-        const payload = {
-            sub: userId,
-            sessionId
-        };
-        return this.jwtService.signAsync(payload);
-    }
-
-    private async generateRefreshToken(
-        userId: string,
-        sessionId: string,
-    ) {
-        const payload = {
-            sub: userId,
-            sessionId,
-        };
-        return this.jwtService.signAsync(payload, {
-            secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
-            expiresIn: this.config.getOrThrow<string>('JWT_REFRESH_EXPIRES_IN') as StringValue,
-        }
-        );
-    }
-
-    private async storeRefreshTokenHash(
-        sessionId: string,
-        refreshToken: string,
-        tx?: Prisma.TransactionClient,
-    ) {
-        const client = tx ?? this.prisma;
-
-        return client.refreshToken.update({
-            where: { id: sessionId },
-            data: { token: refreshToken },
-        });
-    }
-
-    private async createSession(userId: string, tx?: Prisma.TransactionClient,) {
-        const expiresIn = this.config.getOrThrow<string>('JWT_REFRESH_EXPIRES_IN') as StringValue;
-
-        const client = tx ?? this.prisma;
-
-        return client.refreshToken.create({
-            data: {
-                userId,
-                token: '',
-                expiresAt: new Date(Date.now() + ms(expiresIn)),
-            }
-        })
-    }
-
-    private async revokeAllSession(userId: string) {
-        return this.prisma.refreshToken.updateMany({
-            where: {
-                userId,
-                revoked: false,
-            },
-            data: {
-                revoked: true,
-            }
-        });
-    }
-
-    private async revokeSession(sessionId: string, userId: string) {
-        return this.prisma.refreshToken.update({
-            where: {
-                id: sessionId,
-                userId: userId
-            },
-            data: {
-                revoked: true,
-            }
-        });
-    }
-
-    async setRefreshCookie(res: Response, token: string) {
-
-        const expiresIn = this.config.getOrThrow<string>('JWT_REFRESH_EXPIRES_IN') as StringValue;
-
-        res.cookie('refreshToken', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: ms(expiresIn),
-        });
-    }
-
-    clearRefreshCookie(res: Response) {
-        res.clearCookie("refreshToken");
-    }
 
     async registerUser(dto: RegisterUserDto) {
         const userData = dto;
@@ -148,17 +58,17 @@ export class AuthService {
                 }
             });
 
-            const refreshSession = await this.createSession(newUser.id, tx);
+            const refreshSession = await this.sessionService.createSession(newUser.id, tx);
 
-            const refreshToken = await this.generateRefreshToken(
+            const refreshToken = await this.tokenService.generateRefreshToken(
                 newUser.id,
                 refreshSession.id
             );
             const hashedToken = await argon2.hash(refreshToken);
 
-            await this.storeRefreshTokenHash(refreshSession.id, hashedToken, tx);
+            await this.tokenService.storeRefreshTokenHash(refreshSession.id, hashedToken, tx);
 
-            const accessToken = await this.generateAccessToken(
+            const accessToken = await this.tokenService.generateAccessToken(
                 newUser.id,
                 refreshSession.id
             );
@@ -198,12 +108,12 @@ export class AuthService {
 
         return await this.prisma.$transaction(async (tx) => {
 
-            const refreshSession = await this.createSession(userData.id, tx);
-            const refreshToken = await this.generateRefreshToken(userData.id, refreshSession.id);
-            const accessToken = await this.generateAccessToken(userData.id, refreshSession.id);
+            const refreshSession = await this.sessionService.createSession(userData.id, tx);
+            const refreshToken = await this.tokenService.generateRefreshToken(userData.id, refreshSession.id);
+            const accessToken = await this.tokenService.generateAccessToken(userData.id, refreshSession.id);
 
             const hashedToken = await argon2.hash(refreshToken);
-            await this.storeRefreshTokenHash(refreshSession.id, hashedToken, tx);
+            await this.tokenService.storeRefreshTokenHash(refreshSession.id, hashedToken, tx);
 
             if (process.env.NODE_ENV !== 'production') console.log(`refreshToken: ${refreshToken}`);
 
@@ -229,7 +139,7 @@ export class AuthService {
         });
 
         if (!session || session.revoked) {
-            await this.revokeAllSession(userId);
+            await this.sessionService.revokeAllSession(userId);
             console.log("session or token revoked");
             throw new UnauthorizedException('REFRESH_TOKEN_REUSE_DETECTED',);
         }
@@ -237,24 +147,24 @@ export class AuthService {
         const isTokenValid = await argon2.verify(session.token, refreshToken);
 
         if (!isTokenValid) {
-            await this.revokeAllSession(userId);
+            await this.sessionService.revokeAllSession(userId);
             console.log("invalid token");
             throw new UnauthorizedException('REFRESH_TOKEN_REUSE_DETECTED');
         }
 
         if (session.expiresAt < new Date()) {
-            await this.revokeSession(sessionId, userId);
+            await this.sessionService.revokeSession(sessionId, userId);
             throw new UnauthorizedException('REFRESH_TOKEN_EXPIRED');
         }
 
 
-        const newRefreshToken = await this.generateRefreshToken(userId, sessionId);
+        const newRefreshToken = await this.tokenService.generateRefreshToken(userId, sessionId);
 
         const hashedToken = await argon2.hash(newRefreshToken);
 
-        await this.storeRefreshTokenHash(sessionId, hashedToken);
+        await this.tokenService.storeRefreshTokenHash(sessionId, hashedToken);
 
-        const accessToken = await this.generateAccessToken(userId, sessionId);
+        const accessToken = await this.tokenService.generateAccessToken(userId, sessionId);
 
         if (process.env.NODE_ENV !== 'production') console.log(`new refreshToken: ${newRefreshToken}`);
 
@@ -265,11 +175,11 @@ export class AuthService {
     }
 
     async logOut(sessionId: string, userId: string) {
-        return await this.revokeSession(sessionId, userId);
+        return await this.sessionService.revokeSession(sessionId, userId);
     }
 
     async logoutAll(userId: string) {
-        return await this.revokeAllSession(userId);
+        return await this.sessionService.revokeAllSession(userId);
     }
 
     async googleLogin(profile: {
@@ -299,13 +209,13 @@ export class AuthService {
             });
         }
         
-        const session = await this.createSession(user.id);
+        const session = await this.sessionService.createSession(user.id);
 
-        const refreshToken = await this.generateRefreshToken(user.id, session.id);
+        const refreshToken = await this.tokenService.generateRefreshToken(user.id, session.id);
 
-        await this.storeRefreshTokenHash(session.id, refreshToken);
+        await this.tokenService.storeRefreshTokenHash(session.id, refreshToken);
 
-        const accessToken = await this.generateAccessToken(user.id, session.id);
+        const accessToken = await this.tokenService.generateAccessToken(user.id, session.id);
 
         return {
             accessToken, refreshToken
