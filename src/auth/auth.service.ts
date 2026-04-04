@@ -9,6 +9,7 @@ import { LoginUserDto } from './dto/login.dto';
 import { DUMMY_HASH } from 'src/common/constants/constants';
 import { TokenService } from './services/token.service';
 import { SessionService } from './services/session.service';
+import { generateEmailVerificationToken } from './helpers/email.token.helper';
 
 @Injectable()
 export class AuthService {
@@ -22,6 +23,10 @@ export class AuthService {
 
 
     async registerUser(dto: RegisterUserDto) {
+
+        const emailToken =  generateEmailVerificationToken();
+        const hashedEmailToken = await argon2.hash(emailToken);
+
         const userData = dto;
 
         const existingUser = await this.prisma.user.findUnique({
@@ -57,6 +62,18 @@ export class AuthService {
                     id: true,
                 }
             });
+
+            await tx.emailVerification.create({
+                data: {
+                userId: newUser.id,
+                 tokenHash: hashedEmailToken,
+                 expiresAt: new Date(Date.now() + 1000 * 60 * 15),
+                },
+                select: {
+                    id: true,
+                    tokenHash: true,
+                }
+            })
 
             const refreshSession = await this.sessionService.createSession(newUser.id, tx);
 

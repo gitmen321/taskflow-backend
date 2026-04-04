@@ -5,12 +5,21 @@ import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
+import {BullModule} from '@nestjs/bullmq';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+
+    BullModule.forRoot({
+      connection: {
+        host: 'localhost',
+        port: 6379,
+      }
+    }),
+
     PrismaModule,
     UserModule,
     AuthModule,
