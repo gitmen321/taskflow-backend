@@ -10,6 +10,7 @@ import { GoogleStrategy } from './strategies/google.strategy';
 import { TokenService } from './services/token.service';
 import { SessionService } from './services/session.service';
 import { CookieService } from './services/cookie.service';
+import { EmailModule } from 'src/email/email.module';
 
 
 @Module({
@@ -26,6 +27,7 @@ import { CookieService } from './services/cookie.service';
         },
       }),
     }),
+    EmailModule,
   ],
   controllers: [AuthController],
 

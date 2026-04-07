@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Get, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, Get, Req, Res, UnauthorizedException, UseGuards, Query } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterUserDto } from './dto/register.dto';
 import type { Response } from 'express';
@@ -56,6 +56,13 @@ export class AuthController {
             message: "User registered successfully",
             accessToken: accessToken
         }
+    }
+
+    @Get("verify-email")
+    async verifyEmail(
+        @Query("token") token: string
+    ){
+        return this.authService.verifyEmail(token);
     }
 
     @Post("login")

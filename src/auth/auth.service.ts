@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { RegisterUserDto } from './dto/register.dto';
 import * as argon2 from "argon2";
@@ -10,10 +10,14 @@ import { DUMMY_HASH } from 'src/common/constants/constants';
 import { TokenService } from './services/token.service';
 import { SessionService } from './services/session.service';
 import { generateEmailVerificationToken } from './helpers/email.token.helper';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class AuthService {
     constructor(
+        @InjectQueue("email")
+        private emailQueue: Queue,
         private tokenService: TokenService,
         private readonly prisma: PrismaService,
         private readonly jwtService: JwtService,
@@ -24,7 +28,7 @@ export class AuthService {
 
     async registerUser(dto: RegisterUserDto) {
 
-        const emailToken =  generateEmailVerificationToken();
+        const emailToken = generateEmailVerificationToken();
         const hashedEmailToken = await argon2.hash(emailToken);
 
         const userData = dto;
@@ -41,6 +45,7 @@ export class AuthService {
         if (existingUser) {
             throw new ConflictException("EMAIL_ALREADY_EXISTED");
         }
+
 
         const hashedPassword = await argon2.hash(userData.password, {
             type: argon2.argon2id,
@@ -60,20 +65,39 @@ export class AuthService {
                 },
                 select: {
                     id: true,
+                    email: true,
                 }
             });
 
             await tx.emailVerification.create({
                 data: {
-                userId: newUser.id,
-                 tokenHash: hashedEmailToken,
-                 expiresAt: new Date(Date.now() + 1000 * 60 * 15),
+                    userId: newUser.id,
+                    tokenHash: hashedEmailToken,
+                    expiresAt: new Date(Date.now() + 1000 * 60 * 15),
                 },
                 select: {
                     id: true,
                     tokenHash: true,
                 }
-            })
+            });
+
+            await this.emailQueue.add(
+                "sendVerificationEmail",
+                {
+                    email: newUser.email,
+                    token: emailToken
+                },
+                {
+                    attempts: 3,
+                    backoff: {
+                        type: "exponential",
+                        delay: 3000
+                    }
+                }
+            );
+            
+            console.log("Adding Email job to Queue...")
+
 
             const refreshSession = await this.sessionService.createSession(newUser.id, tx);
 
@@ -98,6 +122,62 @@ export class AuthService {
 
     }
 
+    //hhelper fn:
+
+    private async findMatchingToken(token: string, records: any[]) {
+
+        if (!Array.isArray(records)) {
+            return null;
+        }
+
+        for (const record of records) {
+            const match = await argon2.verify(
+                record.tokenHash,
+                token
+            );
+            if (match) {
+                return record;
+            }
+        }
+        return null;
+    }
+
+
+    //helper fn
+
+
+
+
+    async verifyEmail(token: string) {
+
+        const records = this.prisma.emailVerification.findMany({
+            include: { user: true },
+        });
+
+        const record = await this.findMatchingToken(token, await records); 
+
+        if (!record) throw new BadRequestException("Invalid token");
+
+        if (record.expiresAt < new Date()) throw new BadRequestException("Token Expired");
+
+        await this.prisma.user.update({
+            where: {
+                id: record.userId
+            },
+            data: {
+                isVerified: true,
+                verifiedAt: new Date(),
+            },
+        });
+
+        await this.prisma.emailVerification.delete({
+            where: { id: record.id },
+        });
+        return {
+            message: "Email verified Successfully",
+        };
+    }
+
     async loginUser(dto: LoginUserDto) {
 
         const user = await this.prisma.user.findUnique({
@@ -109,6 +189,7 @@ export class AuthService {
                 email: true,
                 password: true,
                 provider: true,
+                isVerified: true
             }
         });
 
@@ -119,6 +200,12 @@ export class AuthService {
 
         if (!user || !isLocal || !isPasswordValid) {
             throw new UnauthorizedException("INVALID_CREDENTIALS");
+        }
+
+        if (!user.isVerified) {
+            throw new UnauthorizedException(
+                "Please verify your email first"
+            );
         }
 
         const { password: _, ...userData } = user;
@@ -222,10 +309,11 @@ export class AuthService {
                     email: profile.email,
                     provider: profile.provider,
                     providerId: profile.providerId,
+                    isVerified: true
                 },
             });
         }
-        
+
         const session = await this.sessionService.createSession(user.id);
 
         const refreshToken = await this.tokenService.generateRefreshToken(user.id, session.id);
