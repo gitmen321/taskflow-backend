@@ -6,12 +6,14 @@ import { AuthProvider, Prisma } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { LoginUserDto } from './dto/login.dto';
-import { DUMMY_HASH } from 'src/common/constants/constants';
+import { AUTH_CONSTANTS } from 'src/common/constants/constants';
 import { TokenService } from './services/token.service';
 import { SessionService } from './services/session.service';
 import { generateEmailVerificationToken } from './helpers/email.token.helper';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { resendVerificationDTO } from './dto/resend-verification.dto';
+import { hash } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -82,7 +84,7 @@ export class AuthService {
             });
 
             await this.emailQueue.add(
-                "sendVerificationEmail",
+                AUTH_CONSTANTS.EMAIL_QUEUE,
                 {
                     email: newUser.email,
                     token: emailToken
@@ -95,7 +97,7 @@ export class AuthService {
                     }
                 }
             );
-            
+
             console.log("Adding Email job to Queue...")
 
 
@@ -154,7 +156,7 @@ export class AuthService {
             include: { user: true },
         });
 
-        const record = await this.findMatchingToken(token, await records); 
+        const record = await this.findMatchingToken(token, await records);
 
         if (!record) throw new BadRequestException("Invalid token");
 
@@ -178,6 +180,62 @@ export class AuthService {
         };
     }
 
+    async resendVerification(dto: resendVerificationDTO) {
+
+        const user = await this.prisma.user.findUnique({
+            where: {
+                email: dto.email,
+            },
+            select: {
+                id: true,
+                isVerified: true,
+                email: true
+            }
+        });
+
+        if (!user || user.isVerified) {
+            return { message: "If the account Exists, a verification email has been sent." };
+        }
+
+
+        const emailToken = generateEmailVerificationToken();
+        const hashedEmailToken = await argon2.hash(emailToken);
+
+        await this.prisma.emailVerification.deleteMany({
+            where: { userId: user.id }
+        });
+ 
+        await this.prisma.emailVerification.create({
+            data: {
+                userId: user.id,
+                tokenHash: hashedEmailToken,
+                expiresAt: new Date(Date.now() + 1000 * 60 * 15),
+            }
+        });
+
+        await this.emailQueue.add(
+            AUTH_CONSTANTS.EMAIL_QUEUE,
+            {
+                email: user.email,
+                token: emailToken
+            },
+            {
+                attempts: 3,
+                backoff: {
+                    type: "exponential",
+                    delay: 3000
+                }
+            }
+        );
+
+        console.log("Adding Email job to Queue...");
+
+        return {
+            message: "Verification Email resent successfully",
+        }
+
+    }
+
     async loginUser(dto: LoginUserDto) {
 
         const user = await this.prisma.user.findUnique({
@@ -194,7 +252,7 @@ export class AuthService {
         });
 
         const isLocal = user?.provider === AuthProvider.LOCAL;
-        const hashToVerify = (isLocal && user.password) || DUMMY_HASH;
+        const hashToVerify = (isLocal && user.password) || AUTH_CONSTANTS.DUMMY_HASH;
 
         const isPasswordValid = await argon2.verify(hashToVerify, dto.password);
 

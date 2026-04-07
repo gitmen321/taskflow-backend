@@ -9,6 +9,7 @@ import { AccessTokenGuard } from './guards/access-token.guards';
 import { GetCurrentUser } from 'src/common/decorators/get-current-user.decorator';
 import { GoogleAuthGuard } from './guards/google.guard';
 import { CookieService } from './services/cookie.service';
+import { resendVerificationDTO } from './dto/resend-verification.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -63,6 +64,13 @@ export class AuthController {
         @Query("token") token: string
     ){
         return this.authService.verifyEmail(token);
+    }
+
+    @Post("resend-verification")
+    async resendVerification(
+        @Body() dto: resendVerificationDTO,
+    ){  
+        return this.authService.resendVerification(dto);
     }
 
     @Post("login")
